@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react"
 import { RefreshCw, BarChart3, X } from "lucide-react"
 import { useRole } from "@/context/RoleContext"
-import { Badge, Button, Card } from "@/components/ui"
+import { Badge, Button } from "@/components/ui"
 import { getMetrics, ApiError, type Metrics } from "@/lib/api"
+import { cn } from "@/lib/utils"
 
 const roleTone = {
   creador: "accent",
@@ -10,32 +11,52 @@ const roleTone = {
   aprobadorB: "warning",
 } as const
 
-function MetricsModal({ onClose }: { onClose: () => void }) {
+function MetricsDrawer({ onClose }: { onClose: () => void }) {
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [visible, setVisible] = useState(false)
 
   useEffect(() => {
+    const t = setTimeout(() => setVisible(true), 10)
     getMetrics()
       .then(setMetrics)
       .catch((err) => setError(err instanceof ApiError ? err.message : "No se pudieron cargar las métricas."))
       .finally(() => setLoading(false))
+    return () => clearTimeout(t)
   }, [])
 
+  function handleClose() {
+    setVisible(false)
+    setTimeout(onClose, 200)
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <Card className="w-full max-w-lg">
+    <div className="fixed inset-0 z-50">
+      <div
+        className={cn(
+          "absolute inset-0 bg-black/40 transition-opacity duration-200",
+          visible ? "opacity-100" : "opacity-0",
+        )}
+        onClick={handleClose}
+      />
+      <div
+        className={cn(
+          "absolute inset-y-0 right-0 flex w-full max-w-sm flex-col bg-card shadow-xl transition-transform duration-200 ease-out",
+          visible ? "translate-x-0" : "translate-x-full",
+        )}
+      >
         <div className="flex items-center justify-between border-b border-border p-4">
           <h2 className="text-base font-semibold">Métricas</h2>
-          <button onClick={onClose} aria-label="Cerrar" className="text-muted-foreground hover:text-foreground">
+          <button onClick={handleClose} aria-label="Cerrar" className="text-muted-foreground hover:text-foreground">
             <X className="size-4" aria-hidden />
           </button>
         </div>
-        <div className="p-4">
+        <div className="flex-1 overflow-y-auto p-4">
           {loading && <p className="text-sm text-muted-foreground">Cargando…</p>}
           {error && <p className="text-sm text-danger">{error}</p>}
           {metrics && (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-4">
               <div className="rounded-lg border border-border p-4">
                 <p className="text-xs font-medium text-muted-foreground">Contenido generado</p>
                 <p className="mt-1 text-2xl font-semibold">{metrics.totalGenerado}</p>
@@ -56,7 +77,7 @@ function MetricsModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
         </div>
-      </Card>
+      </div>
     </div>
   )
 }
@@ -94,7 +115,7 @@ export function TopBar({ title }: { title: string }) {
         </div>
       </div>
 
-      {showMetrics && <MetricsModal onClose={() => setShowMetrics(false)} />}
+      {showMetrics && <MetricsDrawer onClose={() => setShowMetrics(false)} />}
     </header>
   )
 }
