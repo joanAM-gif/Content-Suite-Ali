@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { createPortal } from "react-dom"
 import { RefreshCw, BarChart3, X } from "lucide-react"
 import { useRole } from "@/context/RoleContext"
 import { Badge, Button } from "@/components/ui"
@@ -31,7 +32,7 @@ function MetricsDrawer({ onClose }: { onClose: () => void }) {
     setTimeout(onClose, 200)
   }
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50">
       <div
         className={cn(
@@ -78,7 +79,8 @@ function MetricsDrawer({ onClose }: { onClose: () => void }) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
