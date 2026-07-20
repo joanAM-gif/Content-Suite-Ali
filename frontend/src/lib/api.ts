@@ -220,8 +220,7 @@ export async function generateContent(input: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       producto: input.producto,
-      tipo: input.tipo,
-      tipo_contenido: input.tipo,
+      content_type: input.tipo,
       brief: input.brief,
     }),
   })
