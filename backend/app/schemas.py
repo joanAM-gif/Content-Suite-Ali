@@ -58,6 +58,8 @@ class ContentPieceOut(BaseModel):
     content: str
     status: str
     reviewer_note: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class ImageAuditResponse(BaseModel):
@@ -75,3 +77,13 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     email: str
     role: Literal["creador", "aprobador_a", "aprobador_b"]
+
+
+class MetricsResponse(BaseModel):
+    total_generado: int
+    pendiente: int
+    aprobado: int
+    rechazado: int
+    total_auditorias: int
+    auditorias_cumple: int
+    auditorias_no_cumple: int
