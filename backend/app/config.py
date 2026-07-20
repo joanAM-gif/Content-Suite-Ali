@@ -6,10 +6,14 @@ Todas las credenciales viven en variables de entorno (.env en local,
 API keys en el codigo: eso es lo primero que se revisa en una entrevista
 tecnica sobre buenas practicas.
 """
+import importlib
+import importlib.util
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv = None
+if importlib.util.find_spec("dotenv") is not None:
+    load_dotenv = importlib.import_module("dotenv").load_dotenv
+    load_dotenv()
 
 
 class Settings:
@@ -24,7 +28,7 @@ class Settings:
     GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
     EMBEDDING_MODEL: str = "models/gemini-embedding-001"
     EMBEDDING_DIM: int = 768
-    VISION_MODEL: str = "gemini-flash-latest"
+    VISION_MODEL: str = "gemini-3.5-flash"
 
     # Langfuse - observabilidad (Modulo IV)
     LANGFUSE_PUBLIC_KEY: str = os.getenv("LANGFUSE_PUBLIC_KEY", "")
