@@ -1,13 +1,20 @@
 import { useEffect, useState } from "react"
-import { ChevronDown, Inbox, AlertCircle, RefreshCw, CheckCircle2, XCircle } from "lucide-react"
-import { getPendingReviews, reviewItem, type PendingItem } from "@/lib/api"
+import { ChevronDown, Inbox, AlertCircle, RefreshCw, CheckCircle2, XCircle, History } from "lucide-react"
+import { getPendingReviews, reviewItem, getReviewHistory, type PendingItem, type HistoryItem } from "@/lib/api"
 import { useToast } from "@/components/Toaster"
 import { Badge, Button, Card, Field, Spinner, Textarea } from "@/components/ui"
 import { TopBar } from "@/components/TopBar"
 import { cn } from "@/lib/utils"
 
+const statusTone = {
+  pendiente: "warning",
+  aprobado: "success",
+  rechazado: "danger",
+} as const
+
 export function AprobadorAView() {
   const { toast } = useToast()
+  const [tab, setTab] = useState<"pendientes" | "bitacora">("pendientes")
   const [items, setItems] = useState<PendingItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -49,52 +56,162 @@ export function AprobadorAView() {
               Aprueba o rechaza el contenido pendiente de revisión.
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={load} loading={loading}>
-            <RefreshCw className="size-3.5" aria-hidden />
-            Actualizar
-          </Button>
+          {tab === "pendientes" && (
+            <Button variant="outline" size="sm" onClick={load} loading={loading}>
+              <RefreshCw className="size-3.5" aria-hidden />
+              Actualizar
+            </Button>
+          )}
         </div>
 
-        {loading && (
-          <Card className="flex items-center justify-center p-12">
-            <Spinner label="Cargando contenido pendiente..." />
-          </Card>
+        <div className="mb-6 inline-flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-1">
+          <button
+            onClick={() => setTab("pendientes")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              tab === "pendientes" ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Inbox className="mr-1.5 inline size-3.5" aria-hidden />
+            Pendientes
+          </button>
+          <button
+            onClick={() => setTab("bitacora")}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              tab === "bitacora" ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <History className="mr-1.5 inline size-3.5" aria-hidden />
+            Bitácora
+          </button>
+        </div>
+
+        {tab === "pendientes" && (
+          <>
+            {loading && (
+              <Card className="flex items-center justify-center p-12">
+                <Spinner label="Cargando contenido pendiente..." />
+              </Card>
+            )}
+
+            {!loading && error && (
+              <Card className="flex items-start gap-3 border-danger/30 p-5">
+                <AlertCircle className="mt-0.5 size-5 shrink-0 text-danger" aria-hidden />
+                <div>
+                  <p className="text-sm font-medium text-foreground">No se pudo cargar la lista</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{error}</p>
+                </div>
+              </Card>
+            )}
+
+            {!loading && !error && items.length === 0 && (
+              <Card className="flex flex-col items-center justify-center gap-2 p-12 text-center">
+                <div className="flex size-11 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                  <Inbox className="size-5" aria-hidden />
+                </div>
+                <p className="text-sm font-medium">Todo al día</p>
+                <p className="text-sm text-muted-foreground">No hay contenido pendiente de revisión.</p>
+              </Card>
+            )}
+
+            {!loading && !error && items.length > 0 && (
+              <div className="flex flex-col gap-3">
+                {items.map((item) => (
+                  <ReviewCard
+                    key={item.id}
+                    item={item}
+                    open={expanded === item.id}
+                    onToggle={() => setExpanded((e) => (e === item.id ? null : item.id))}
+                    onResolved={() => handleResolved(item.id)}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
 
-        {!loading && error && (
-          <Card className="flex items-start gap-3 border-danger/30 p-5">
-            <AlertCircle className="mt-0.5 size-5 shrink-0 text-danger" aria-hidden />
-            <div>
-              <p className="text-sm font-medium text-foreground">No se pudo cargar la lista</p>
-              <p className="mt-1 text-sm text-muted-foreground">{error}</p>
-            </div>
-          </Card>
-        )}
-
-        {!loading && !error && items.length === 0 && (
-          <Card className="flex flex-col items-center justify-center gap-2 p-12 text-center">
-            <div className="flex size-11 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-              <Inbox className="size-5" aria-hidden />
-            </div>
-            <p className="text-sm font-medium">Todo al día</p>
-            <p className="text-sm text-muted-foreground">No hay contenido pendiente de revisión.</p>
-          </Card>
-        )}
-
-        {!loading && !error && items.length > 0 && (
-          <div className="flex flex-col gap-3">
-            {items.map((item) => (
-              <ReviewCard
-                key={item.id}
-                item={item}
-                open={expanded === item.id}
-                onToggle={() => setExpanded((e) => (e === item.id ? null : item.id))}
-                onResolved={() => handleResolved(item.id)}
-              />
-            ))}
-          </div>
-        )}
+        {tab === "bitacora" && <HistoryPanel />}
       </main>
+    </div>
+  )
+}
+
+function HistoryPanel() {
+  const { toast } = useToast()
+  const [history, setHistory] = useState<HistoryItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    getReviewHistory()
+      .then(setHistory)
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : "Error inesperado"
+        setError(msg)
+        toast(msg, "error")
+      })
+      .finally(() => setLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  if (loading) {
+    return (
+      <Card className="flex items-center justify-center p-12">
+        <Spinner label="Cargando bitácora..." />
+      </Card>
+    )
+  }
+
+  if (error) {
+    return (
+      <Card className="flex items-start gap-3 border-danger/30 p-5">
+        <AlertCircle className="mt-0.5 size-5 shrink-0 text-danger" aria-hidden />
+        <div>
+          <p className="text-sm font-medium text-foreground">No se pudo cargar la bitácora</p>
+          <p className="mt-1 text-sm text-muted-foreground">{error}</p>
+        </div>
+      </Card>
+    )
+  }
+
+  if (history.length === 0) {
+    return (
+      <Card className="flex flex-col items-center justify-center gap-2 p-12 text-center">
+        <div className="flex size-11 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          <History className="size-5" aria-hidden />
+        </div>
+        <p className="text-sm font-medium">Sin registros todavía</p>
+        <p className="text-sm text-muted-foreground">Aquí aparecerá el historial completo de revisiones.</p>
+      </Card>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {history.map((item) => (
+        <Card key={item.id} className="p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold">{item.producto || "Sin producto"}</span>
+              {item.tipoContenido && <Badge tone="accent">{item.tipoContenido}</Badge>}
+              <Badge tone={statusTone[item.status as keyof typeof statusTone] ?? "accent"}>
+                {item.status || "desconocido"}
+              </Badge>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {item.updatedAt ? new Date(item.updatedAt).toLocaleString() : "Sin revisar"}
+            </span>
+          </div>
+          <p className="mt-2 line-clamp-2 text-pretty text-sm text-muted-foreground">{item.contenido}</p>
+          {item.reviewerNote && (
+            <p className="mt-2 rounded-md bg-muted/50 px-3 py-2 text-sm text-foreground">
+              <span className="font-medium">Nota: </span>
+              {item.reviewerNote}
+            </p>
+          )}
+        </Card>
+      ))}
     </div>
   )
 }

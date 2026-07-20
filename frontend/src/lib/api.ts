@@ -256,3 +256,58 @@ export async function auditImage(producto: string, image: File): Promise<ImageAu
   })
   return normalizeAudit(raw)
 }
+
+export interface HistoryItem {
+  id: string
+  producto: string
+  tipoContenido: string
+  contenido: string
+  status: string
+  reviewerNote: string | null
+  updatedAt: string | null
+}
+
+function normalizeHistoryItem(raw: any): HistoryItem {
+  return {
+    id: asString(pick(raw, ["id", "_id", "uuid"])),
+    producto: asString(pick(raw, ["producto", "product"])),
+    tipoContenido: asString(pick(raw, ["tipo_contenido", "tipoContenido", "content_type", "tipo", "type"])),
+    contenido: asString(pick(raw, ["contenido", "content", "texto", "text"])),
+    status: asString(pick(raw, ["status", "estado"])),
+    reviewerNote:
+      pick(raw, ["reviewer_note", "reviewerNote"]) != null
+        ? asString(pick(raw, ["reviewer_note", "reviewerNote"]))
+        : null,
+    updatedAt:
+      pick(raw, ["updated_at", "updatedAt"]) != null ? asString(pick(raw, ["updated_at", "updatedAt"])) : null,
+  }
+}
+
+export async function getReviewHistory(): Promise<HistoryItem[]> {
+  const raw = await request<any>("/review/history")
+  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : []
+  return list.map(normalizeHistoryItem)
+}
+
+export interface Metrics {
+  totalGenerado: number
+  pendiente: number
+  aprobado: number
+  rechazado: number
+  totalAuditorias: number
+  auditoriasCumple: number
+  auditoriasNoCumple: number
+}
+
+export async function getMetrics(): Promise<Metrics> {
+  const raw = await request<any>("/metrics")
+  return {
+    totalGenerado: Number(pick(raw, ["total_generado"]) ?? 0),
+    pendiente: Number(pick(raw, ["pendiente"]) ?? 0),
+    aprobado: Number(pick(raw, ["aprobado"]) ?? 0),
+    rechazado: Number(pick(raw, ["rechazado"]) ?? 0),
+    totalAuditorias: Number(pick(raw, ["total_auditorias"]) ?? 0),
+    auditoriasCumple: Number(pick(raw, ["auditorias_cumple"]) ?? 0),
+    auditoriasNoCumple: Number(pick(raw, ["auditorias_no_cumple"]) ?? 0),
+  }
+}
