@@ -1,18 +1,29 @@
 # Content Suite - Reto Tecnico Alicorp
 
-Backend del reto. Estado actual: **Modulos I (Brand DNA Architect), II
-(Creative Engine), III (Governance & Multimodal Audit) y IV
-(Observabilidad con Langfuse) implementados y probados.**
-Frontend: prompt listo para v0.dev/Bolt.new + cliente API tipado (ver
-`frontend/`). Falta desplegar todo y grabar trazas reales antes de la
-entrevista (ver plan en `Plan_Reto_Tecnico_Alicorp.docx`).
+Plataforma de consistencia de marca para lanzamiento masivo de productos,
+con RAG multimodal y gobernanza de datos. **Los 4 modulos del reto estan
+implementados, probados y desplegados en produccion.**
+
+## Demo en vivo
+
+- **App web**: https://nice-tree-00b25910f.7.azurestaticapps.net
+- **API (backend)**: https://content-suite-api-joan-bkhec2dbgnbdf6a4.centralus-01.azurewebsites.net/docs
+- **Langfuse (trazas en vivo)**: https://cloud.langfuse.com/project/cmrs275wy1cttad0iwpobcemt
+
+### Credenciales de demo
+
+| Rol          | Email                  | Password  |
+|--------------|-------------------------|-----------|
+| Creador      | creador@demo.com        | demo1234  |
+| Aprobador A  | aprobadora@demo.com     | demo1234  |
+| Aprobador B  | aprobadorb@demo.com     | demo1234  |
 
 ## Arquitectura
 
 ```
-React (v0.dev / Bolt.new)
+React (Vite, generado con v0.dev/Bolt.new) -- Azure Static Web Apps
         |
-   FastAPI (backend/app)
+   FastAPI (backend/app) -- Azure App Service
         |
    Groq Cloud (texto)  +  Google AI Studio (embeddings y vision)
         |
@@ -20,6 +31,9 @@ React (v0.dev / Bolt.new)
         |
    Langfuse (traza cada llamada IA)
 ```
+
+Backend y frontend se despliegan automaticamente desde este repositorio
+via GitHub Actions en cada push a `main` (ver `.github/workflows/`).
 
 ## Setup local
 
@@ -29,8 +43,9 @@ React (v0.dev / Bolt.new)
 2. Ve a `SQL Editor` y ejecuta el contenido de `backend/sql/schema.sql`.
    Esto crea las tablas (`users`, `brand_manual_chunks`, `content_pieces`,
    `image_audits`) y siembra los 3 usuarios de demo.
-3. Ve a `Settings -> Database -> Connection string -> URI` y copia la
-   cadena de conexion (reemplaza `[PASSWORD]` por tu password de proyecto).
+3. Ve a `Settings -> Database -> Connection Pooling` y copia la cadena de
+   conexion del **Transaction pooler** (compatible con IPv4, recomendado
+   para entornos locales que no soportan IPv6).
 
 ### 2. Obtener las API keys
 
@@ -48,27 +63,40 @@ cp .env.example .env
 # variables LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY
 ```
 
-### 4. Instalar dependencias y correr
+### 4. Instalar dependencias y correr el backend
 
 ```bash
 python3 -m venv venv
-source venv/bin/activate        # En Windows: venv\Scripts\activate
+source venv/bin/activate        # En Windows (Git Bash): source venv/Scripts/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
 Abre http://localhost:8000/docs para la documentacion interactiva (Swagger).
 
+### 5. Correr el frontend
+
+```bash
+cd frontend
+npm install
+# Crea un .env con VITE_API_URL=http://localhost:8000
+npm run dev
+```
+
 ## Endpoints disponibles
 
-| Metodo | Ruta                | Descripcion                                                        |
-|--------|---------------------|----------------------------------------------------------------------|
-| GET    | `/health`           | Chequeo de salud del servicio.                                       |
-| POST   | `/brand`            | Modulo I: genera el manual de marca y lo indexa en el RAG.           |
-| POST   | `/generate`         | Modulo II: genera contenido consultando el manual de marca (RAG).    |
-| GET    | `/review/pending`   | Modulo III: lista piezas de contenido pendientes (Aprobador A).      |
-| PATCH  | `/review/{id}`      | Modulo III: aprueba o rechaza una pieza de contenido (Aprobador A).  |
+| Metodo | Ruta                | Descripcion                                                           |
+|--------|---------------------|------------------------------------------------------------------------|
+| GET    | `/health`           | Chequeo de salud del servicio.                                         |
+| POST   | `/login`             | Valida email/password contra la tabla `users` y devuelve el rol.       |
+| POST   | `/brand`            | Modulo I: genera el manual de marca y lo indexa en el RAG.             |
+| GET    | `/brand/{producto}` | Modulo I: consulta el manual ya indexado de un producto.               |
+| POST   | `/generate`         | Modulo II: genera contenido consultando el manual de marca (RAG).      |
+| GET    | `/review/pending`   | Modulo III: lista piezas de contenido pendientes (Aprobador A).        |
+| GET    | `/review/history`   | Modulo III: bitacora completa de revisiones (todos los estados).       |
+| PATCH  | `/review/{id}`      | Modulo III: aprueba o rechaza una pieza de contenido (Aprobador A).    |
 | POST   | `/audit-image`      | Modulo III: audita una imagen contra el manual de marca (Aprobador B). |
+| GET    | `/metrics`          | Panel de metricas: conteos de contenido generado y auditorias.         |
 
 ### Ejemplo: `POST /brand`
 
@@ -107,7 +135,7 @@ Respuesta:
 }
 ```
 
-### Ejemplo: `GET /review/pending` y `PATCH /review/{id}`
+### Ejemplo: `PATCH /review/{id}`
 
 ```json
 {
@@ -132,30 +160,21 @@ Request `multipart/form-data` con `producto` e `image`.
 ## Frontend
 
 Siguiendo la sugerencia del propio reto ("Frontend: React (sugerido via
-v0/Bolt.new)"), el frontend no se escribio a mano: se preparo todo lo
-necesario para generarlo con IA y que conecte sin fricciones con el
-backend real.
+v0/Bolt.new)"), el frontend se genero con v0.dev/Bolt.new y se conecto a
+un cliente API tipado en TypeScript (`frontend/src/lib/api.ts`), con una
+funcion por endpoint, tipada igual que los esquemas Pydantic del backend.
+Esto garantizo que la integracion funcionara sin adivinar contratos entre
+frontend y backend generados por separado.
 
-- `frontend/PROMPT_v0_boltnew.md`: prompt completo, listo para copiar y
-  pegar en https://v0.dev o https://bolt.new. Describe las 3 vistas por
-  rol (Creador, Aprobador A, Aprobador B), que endpoint llama cada
-  pantalla y el estilo visual esperado.
-- `frontend/lib/api.ts`: cliente API en TypeScript con una funcion por
-  endpoint, tipada exactamente igual que los esquemas Pydantic del
-  backend (`createBrandManual`, `generateContent`, `listPendingReviews`,
-  `reviewContentPiece`, `auditImage`). Se compilo con `tsc --strict`
-  sin errores. Reemplaza el `fetch` que genere la IA por este archivo
-  para garantizar que la integracion funcione a la primera.
+Vistas por rol:
 
-### Como usarlo
-
-1. Pega el prompt de `PROMPT_v0_boltnew.md` en v0.dev o Bolt.new.
-2. Cuando el proyecto este generado, copia `frontend/lib/api.ts` dentro
-   de el (normalmente en `lib/api.ts` o `src/lib/api.ts`).
-3. Conecta los componentes generados a estas funciones en vez de al
-   `fetch` que haya inventado la IA.
-4. Crea un `.env` en el frontend con `VITE_API_URL=http://localhost:8000`
-   (o la URL de Render una vez desplegado).
+- **Creador**: define/consulta el manual de marca y genera contenido
+  (descripciones, guiones, prompts de imagen).
+- **Aprobador A**: revisa contenido pendiente, aprueba/rechaza con nota,
+  y tiene una bitacora con el historial completo de revisiones.
+- **Aprobador B**: sube imagenes y las audita contra el manual de marca.
+- **Panel de metricas** (visible para los 3 roles): totales de contenido
+  generado por estado y de auditorias de imagen por resultado.
 
 ## Modulo IV: que se ve en Langfuse
 
@@ -181,26 +200,25 @@ el SDK se desactiva solo (loguea un warning) y el resto del sistema sigue
 funcionando exactamente igual: la observabilidad es un add-on, no una
 dependencia dura.
 
-## Usuarios de demo (sembrados por schema.sql)
-
-| Rol          | Email                  | Password  |
-|--------------|-------------------------|-----------|
-| Creador      | creador@demo.com        | demo1234  |
-| Aprobador A  | aprobadora@demo.com     | demo1234  |
-| Aprobador B  | aprobadorb@demo.com     | demo1234  |
-
 ## Decisiones de diseno (para la entrevista)
 
 - **Embeddings via Google AI Studio en vez de un modelo local**: evita
-  cargar un modelo pesado (tipo sentence-transformers/torch) en el free
-  tier de Render (512 MB de RAM), y reutiliza el mismo proveedor que ya
-  se usa para la auditoria multimodal del Modulo III.
+  cargar un modelo pesado (tipo sentence-transformers/torch) en un free
+  tier con RAM limitada, y reutiliza el mismo proveedor que ya se usa
+  para la auditoria multimodal del Modulo III.
 - **Sin ORM**: se usa `psycopg2` directo. Para un backend de pocos
   endpoints en 3 dias, SQLAlchemy anade configuracion sin aportar valor
   proporcional.
-- **Autenticacion simplificada**: 3 usuarios sembrados por SQL en vez de
-  un sistema de login completo, documentado como recorte de alcance
-  consciente (ver seccion 2 del plan).
+- **Autenticacion simplificada (login real, sin JWT/sesiones)**: el
+  endpoint `POST /login` valida email/password contra la tabla `users` y
+  devuelve el rol; el frontend usa ese rol para mostrar la vista
+  correspondiente. Se opto por no implementar tokens con expiracion por
+  alcance de tiempo (3 dias), documentado aqui como recorte consciente y
+  como siguiente paso natural en "Proximos pasos".
+- **Despliegue en Azure en vez de Render**: el stack sugerido por el reto
+  incluye Render por ser gratuito, pero se eligio Azure App Service +
+  Static Web Apps (tambien con capa gratuita) por alineacion con la nube
+  que usa Alicorp.
 - **`response_format: json_object` / `response_mime_type: application/json`**:
   se fuerza a Groq y a Gemini a devolver JSON valido, evitando parseo
   fragil de texto libre en dos puntos distintos del sistema.
@@ -219,13 +237,25 @@ dependencia dura.
   Langfuse no esta configurado, el sistema sigue funcionando.
 - **Frontend generado con IA en vez de escrito a mano**: el reto
   explicitamente sugiere v0/Bolt.new para el frontend. En vez de
-  escribir componentes React a mano, se invirtio el tiempo en un prompt
-  preciso y un cliente API tipado y verificado, que es lo que realmente
-  determina si la integracion funciona.
+  escribir componentes React a mano, se invirtio el tiempo en un cliente
+  API tipado y verificado, que es lo que realmente determina si la
+  integracion funciona.
+
+## Extras sobre lo pedido en el reto
+
+- **Panel de metricas**: totales de contenido generado (pendiente,
+  aprobado, rechazado) y de auditorias de imagen (cumple/no cumple),
+  visible para los 3 roles.
+- **Bitacora de revision**: historial completo de todas las piezas de
+  contenido (no solo las pendientes), con nota del revisor y fecha, en
+  la vista del Aprobador A.
+- **Consulta de manual existente**: el Creador puede buscar y ver el
+  manual de marca ya indexado de un producto, sin tener que regenerarlo.
 
 ## Proximos pasos
 
-- Pegar el prompt en v0.dev/Bolt.new y conectar `lib/api.ts`.
-- Desplegar backend en Render y frontend en Render/Vercel.
-- Generar trazas reales en Langfuse antes de la entrevista (entregable obligatorio).
-- Documentar la URL publica y las credenciales en este README.
+- Migrar la autenticacion a sesiones con JWT (expiracion, refresh token).
+- Notificaciones por email/WhatsApp cuando se genera, aprueba o rechaza
+  contenido.
+- Streaming de la respuesta de Groq en el Creative Engine (token a token)
+  para mejorar la percepcion de velocidad en la generacion.
