@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react"
-import { Ban, KeyRound, Database, FileText, AlertCircle } from "lucide-react"
-import { createBrand, type BrandManual } from "@/lib/api"
+import { Ban, KeyRound, Database, FileText, AlertCircle, Search } from "lucide-react"
+import { createBrand, getBrandManual, type BrandManual } from "@/lib/api"
 import { useToast } from "@/components/Toaster"
 import { Badge, Button, Card, Field, Input, Spinner } from "@/components/ui"
 
@@ -9,7 +9,9 @@ export function BrandManualTab() {
   const [producto, setProducto] = useState("")
   const [tono, setTono] = useState("")
   const [publico, setPublico] = useState("")
+  const [buscarProducto, setBuscarProducto] = useState("")
   const [loading, setLoading] = useState(false)
+  const [buscando, setBuscando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [manual, setManual] = useState<BrandManual | null>(null)
 
@@ -30,80 +32,131 @@ export function BrandManualTab() {
     }
   }
 
+  async function onBuscar(e: FormEvent) {
+    e.preventDefault()
+    if (!buscarProducto.trim()) return
+    setBuscando(true)
+    setError(null)
+    try {
+      const result = await getBrandManual(buscarProducto.trim())
+      setManual(result)
+      toast("Manual de marca encontrado", "success")
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error inesperado"
+      setError(msg)
+      toast(msg, "error")
+    } finally {
+      setBuscando(false)
+    }
+  }
+
+  const loadingAny = loading || buscando
+
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,380px)_1fr]">
-      <Card className="h-fit p-6">
-        <h2 className="text-base font-semibold">Definir manual de marca</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          La IA construirá el manual y lo indexará en el RAG.
-        </p>
-        <form onSubmit={onSubmit} className="mt-5 flex flex-col gap-4">
-          <Field label="Producto" htmlFor="bm-producto">
+      <div className="flex flex-col gap-6">
+        <Card className="p-5">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <Search className="size-4 text-muted-foreground" aria-hidden />
+            Consultar manual existente
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Busca el manual ya generado e indexado para un producto.
+          </p>
+          <form onSubmit={onBuscar} className="mt-4 flex gap-2">
             <Input
-              id="bm-producto"
-              value={producto}
-              onChange={(e) => setProducto(e.target.value)}
+              value={buscarProducto}
+              onChange={(e) => setBuscarProducto(e.target.value)}
               placeholder="Ej. Zapatillas running EcoStride"
-              required
+              aria-label="Producto a consultar"
             />
-          </Field>
-          <Field label="Tono deseado" htmlFor="bm-tono">
-            <Input
-              id="bm-tono"
-              value={tono}
-              onChange={(e) => setTono(e.target.value)}
-              placeholder="Ej. Cercano, energético y profesional"
-              required
-            />
-          </Field>
-          <Field label="Público objetivo" htmlFor="bm-publico">
-            <Input
-              id="bm-publico"
-              value={publico}
-              onChange={(e) => setPublico(e.target.value)}
-              placeholder="Ej. Corredores urbanos de 25 a 40 años"
-              required
-            />
-          </Field>
-          <Button type="submit" loading={loading} className="mt-1">
-            {loading ? "Generando manual..." : "Generar manual"}
-          </Button>
-        </form>
-      </Card>
+            <Button type="submit" variant="outline" loading={buscando} disabled={loadingAny && !buscando}>
+              Buscar
+            </Button>
+          </form>
+        </Card>
+
+        <Card className="h-fit p-6">
+          <h2 className="text-base font-semibold">Definir manual de marca</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            La IA construirá el manual y lo indexará en el RAG.
+          </p>
+          <form onSubmit={onSubmit} className="mt-5 flex flex-col gap-4">
+            <Field label="Producto" htmlFor="bm-producto">
+              <Input
+                id="bm-producto"
+                value={producto}
+                onChange={(e) => setProducto(e.target.value)}
+                placeholder="Ej. Zapatillas running EcoStride"
+                required
+              />
+            </Field>
+            <Field label="Tono deseado" htmlFor="bm-tono">
+              <Input
+                id="bm-tono"
+                value={tono}
+                onChange={(e) => setTono(e.target.value)}
+                placeholder="Ej. Cercano, energético y profesional"
+                required
+              />
+            </Field>
+            <Field label="Público objetivo" htmlFor="bm-publico">
+              <Input
+                id="bm-publico"
+                value={publico}
+                onChange={(e) => setPublico(e.target.value)}
+                placeholder="Ej. Corredores urbanos de 25 a 40 años"
+                required
+              />
+            </Field>
+            <Button type="submit" loading={loading} className="mt-1" disabled={loadingAny && !loading}>
+              {loading ? "Generando manual..." : "Generar manual"}
+            </Button>
+          </form>
+        </Card>
+      </div>
 
       <div className="min-w-0">
-        {loading && (
+        {loadingAny && (
           <Card className="flex flex-col items-center justify-center gap-3 p-12 text-center">
-            <Spinner label="Generando manual e indexando contexto de marca..." />
-            <p className="max-w-sm text-xs text-muted-foreground">
-              Esto puede tardar unos segundos mientras se procesan e indexan los chunks en el RAG.
-            </p>
+            <Spinner
+              label={
+                buscando
+                  ? "Buscando manual indexado..."
+                  : "Generando manual e indexando contexto de marca..."
+              }
+            />
+            {loading && (
+              <p className="max-w-sm text-xs text-muted-foreground">
+                Esto puede tardar unos segundos mientras se procesan e indexan los chunks en el RAG.
+              </p>
+            )}
           </Card>
         )}
 
-        {!loading && error && (
+        {!loadingAny && error && (
           <Card className="flex items-start gap-3 border-danger/30 p-5">
             <AlertCircle className="mt-0.5 size-5 shrink-0 text-danger" aria-hidden />
             <div>
-              <p className="text-sm font-medium text-foreground">No se pudo generar el manual</p>
+              <p className="text-sm font-medium text-foreground">No se pudo completar la operación</p>
               <p className="mt-1 text-sm text-muted-foreground">{error}</p>
             </div>
           </Card>
         )}
 
-        {!loading && !error && !manual && (
+        {!loadingAny && !error && !manual && (
           <Card className="flex flex-col items-center justify-center gap-2 p-12 text-center">
             <div className="flex size-11 items-center justify-center rounded-lg bg-muted text-muted-foreground">
               <FileText className="size-5" aria-hidden />
             </div>
             <p className="text-sm font-medium">Aún no hay manual</p>
             <p className="max-w-xs text-sm text-muted-foreground">
-              Completa el formulario para generar el manual de marca de tu producto.
+              Genera uno nuevo o busca uno existente por nombre de producto.
             </p>
           </Card>
         )}
 
-        {!loading && manual && <ManualResult manual={manual} />}
+        {!loadingAny && manual && <ManualResult manual={manual} />}
       </div>
     </div>
   )

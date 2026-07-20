@@ -15,13 +15,15 @@ El endpoint esta decorado con @observe(): es el trace raiz de Langfuse
 para esta operacion, y agrupa como spans hijos la generacion del manual
 y cada embedding calculado.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException  # type: ignore[reportMissingImports]
 
 from app.database import get_connection
 from app.schemas import BrandManual, BrandRequest, BrandResponse
 from app.services.embeddings import embed_text
 from app.services.llm import generate_brand_manual
-from app.services.observability import observe
+from app.services import observability
+
+observe = getattr(observability, "observe", lambda name: (lambda func: func))
 
 router = APIRouter(prefix="/brand", tags=["Modulo I - Brand DNA Architect"])
 
@@ -69,4 +71,68 @@ def create_brand_manual(payload: BrandRequest) -> BrandResponse:
         producto=payload.producto,
         manual=BrandManual(**manual_dict),
         chunks_indexados=len(chunks),
+    )
+
+@router.get("/{producto}", response_model=BrandResponse)
+def get_brand_manual(producto: str) -> BrandResponse:
+    """
+    Reconstruye el manual de marca ya guardado para un producto, a partir
+    de los chunks indexados en brand_manual_chunks (extra: permite
+    consultar lo que ya se genero, no solo crear uno nuevo).
+
+    Si el producto se genero mas de una vez, se toma solo la version mas
+    reciente (los chunks insertados dentro de los ultimos 10s respecto al
+    mas nuevo), para no mezclar generaciones distintas del mismo producto.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT chunk_type, content
+                    FROM brand_manual_chunks
+                    WHERE product = %s
+                      AND created_at >= (
+                          SELECT max(created_at) FROM brand_manual_chunks WHERE product = %s
+                      ) - interval '10 seconds'
+                    ORDER BY chunk_type ASC
+                    """,
+                    (producto, producto),
+                )
+                rows = cur.fetchall()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Error consultando el manual: {exc}") from exc
+
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay manual de marca indexado para '{producto}'. Genera uno primero con POST /brand.",
+        )
+
+    tono = publico = resumen = ""
+    prohibiciones: list[str] = []
+    mensajes_clave: list[str] = []
+
+    for chunk_type, content in rows:
+        if chunk_type == "tono":
+            tono = content.removeprefix(f"Tono de marca para {producto}: ")
+        elif chunk_type == "publico":
+            publico = content.removeprefix(f"Publico objetivo de {producto}: ")
+        elif chunk_type == "resumen":
+            resumen = content.removeprefix(f"Resumen de marca de {producto}: ")
+        elif chunk_type.startswith("prohibicion_"):
+            prohibiciones.append(content.removeprefix(f"Regla prohibida para {producto}: "))
+        elif chunk_type.startswith("mensaje_"):
+            mensajes_clave.append(content.removeprefix(f"Mensaje clave de {producto}: "))
+
+    return BrandResponse(
+        producto=producto,
+        manual=BrandManual(
+            tono=tono,
+            publico=publico,
+            prohibiciones=prohibiciones,
+            mensajes_clave=mensajes_clave,
+            resumen=resumen,
+        ),
+        chunks_indexados=len(rows),
     )

@@ -311,3 +311,8 @@ export async function getMetrics(): Promise<Metrics> {
     auditoriasNoCumple: Number(pick(raw, ["auditorias_no_cumple"]) ?? 0),
   }
 }
+
+export async function getBrandManual(producto: string): Promise<BrandManual> {
+  const raw = await request<any>(`/brand/${encodeURIComponent(producto)}`)
+  return normalizeBrand(raw?.manual ?? raw)
+}
