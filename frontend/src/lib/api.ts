@@ -238,10 +238,11 @@ export async function reviewItem(
   status: "approved" | "rejected",
   nota: string,
 ): Promise<void> {
+  const statusMap = { approved: "aprobado", rejected: "rechazado" } as const
   await request<void>(`/review/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status, nota }),
+    body: JSON.stringify({ status: statusMap[status], reviewer_note: nota }),
   })
 }
 
