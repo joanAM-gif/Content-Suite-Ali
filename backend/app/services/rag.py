@@ -13,29 +13,10 @@ concreta de "que contexto se recupero del RAG" que pide el Modulo IV.
 """
 from app.database import get_connection
 from app.services.embeddings import embed_text
+import app.services.observability as observability
 
 
-# The `observe` decorator and `get_client` helper are expected to be
-# provided by app.services.observability. Some environments may not
-# expose them, so provide no-op fallbacks to keep this module importable.
-try:
-    from app.services.observability import get_client, observe  # type: ignore
-except Exception:  # pragma: no cover - fallback for environments without observability
-    def observe(*_args, **_kwargs):
-        def _decorator(func):
-            return func
-
-        return _decorator
-
-    class _DummyClient:
-        def update_current_span(self, *args, **kwargs):
-            pass
-
-    def get_client():
-        return _DummyClient()
-
-
-@observe(name="pgvector-retrieve-brand-context", as_type="retriever")
+@observability.observe(name="pgvector-retrieve-brand-context", as_type="retriever")
 def retrieve_brand_context(product: str, query: str, top_k: int = 5) -> list[dict]:
     """Devuelve los `top_k` chunks del manual de marca mas relevantes para `query`."""
     query_vector = embed_text(query)
@@ -46,7 +27,7 @@ def retrieve_brand_context(product: str, query: str, top_k: int = 5) -> list[dic
                 """
                 SELECT chunk_type, content, embedding <=> %s::vector AS distance
                 FROM brand_manual_chunks
-                WHERE product = %s
+                WHERE lower(product) = lower(%s)
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
                 """,
@@ -59,7 +40,7 @@ def retrieve_brand_context(product: str, query: str, top_k: int = 5) -> list[dic
         for chunk_type, content, distance in rows
     ]
 
-    get_client().update_current_span(
+    observability.get_client().update_current_span(
         input={"product": product, "query": query, "top_k": top_k},
         output=chunks,
         metadata={"chunks_retrieved": len(chunks)},

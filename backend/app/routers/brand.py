@@ -89,11 +89,11 @@ def get_brand_manual(producto: str) -> BrandResponse:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT chunk_type, content
+                    SELECT chunk_type, content, product
                     FROM brand_manual_chunks
-                    WHERE product = %s
+                    WHERE lower(product) = lower(%s)
                       AND created_at >= (
-                          SELECT max(created_at) FROM brand_manual_chunks WHERE product = %s
+                          SELECT max(created_at) FROM brand_manual_chunks WHERE lower(product) = lower(%s)
                       ) - interval '10 seconds'
                     ORDER BY chunk_type ASC
                     """,
@@ -109,24 +109,32 @@ def get_brand_manual(producto: str) -> BrandResponse:
             detail=f"No hay manual de marca indexado para '{producto}'. Genera uno primero con POST /brand.",
         )
 
+    # Se usa el nombre del producto tal como se guardo originalmente (puede
+    # diferir en mayusculas/minusculas de lo que el usuario escribio al buscar).
+    producto_real = rows[0][2]
+
     tono = publico = resumen = ""
     prohibiciones: list[str] = []
     mensajes_clave: list[str] = []
 
-    for chunk_type, content in rows:
+    for chunk_type, content, _product in rows:
+        # El contenido siempre tiene el formato "Etiqueta: valor"; se corta
+        # por el primer ": " en vez de depender de la capitalizacion exacta
+        # del producto (que puede no coincidir con lo que se busco).
+        value = content.split(": ", 1)[1] if ": " in content else content
         if chunk_type == "tono":
-            tono = content.removeprefix(f"Tono de marca para {producto}: ")
+            tono = value
         elif chunk_type == "publico":
-            publico = content.removeprefix(f"Publico objetivo de {producto}: ")
+            publico = value
         elif chunk_type == "resumen":
-            resumen = content.removeprefix(f"Resumen de marca de {producto}: ")
+            resumen = value
         elif chunk_type.startswith("prohibicion_"):
-            prohibiciones.append(content.removeprefix(f"Regla prohibida para {producto}: "))
+            prohibiciones.append(value)
         elif chunk_type.startswith("mensaje_"):
-            mensajes_clave.append(content.removeprefix(f"Mensaje clave de {producto}: "))
+            mensajes_clave.append(value)
 
     return BrandResponse(
-        producto=producto,
+        producto=producto_real,
         manual=BrandManual(
             tono=tono,
             publico=publico,
