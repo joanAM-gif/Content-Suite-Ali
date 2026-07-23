@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 import { Ban, KeyRound, Database, FileText, AlertCircle, Search } from "lucide-react"
-import { createBrand, getBrandManual, type BrandManual } from "@/lib/api"
+import { createBrand, getBrandManual, searchBrandProducts, type BrandManual } from "@/lib/api"
 import { useToast } from "@/components/Toaster"
 import { Badge, Button, Card, Field, Input, Spinner } from "@/components/ui"
 
@@ -14,6 +14,49 @@ export function BrandManualTab() {
   const [buscando, setBuscando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [manual, setManual] = useState<BrandManual | null>(null)
+
+  // Extra: autocomplete del buscador — sugiere productos ya indexados que
+  // coincidan parcialmente con lo escrito, en vez de exigir el nombre
+  // exacto (ver GET /brand/search en el backend).
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [suggestLoading, setSuggestLoading] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchBoxRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    const q = buscarProducto.trim()
+    if (q.length < 2) {
+      setSuggestions([])
+      return
+    }
+    setSuggestLoading(true)
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const results = await searchBrandProducts(q)
+        setSuggestions(results)
+        setShowSuggestions(true)
+      } catch {
+        setSuggestions([])
+      } finally {
+        setSuggestLoading(false)
+      }
+    }, 250)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [buscarProducto])
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false)
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside)
+    return () => document.removeEventListener("mousedown", onClickOutside)
+  }, [])
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -32,13 +75,13 @@ export function BrandManualTab() {
     }
   }
 
-  async function onBuscar(e: FormEvent) {
-    e.preventDefault()
-    if (!buscarProducto.trim()) return
+ async function buscarManual(nombreProducto: string) {
+    if (!nombreProducto.trim()) return
+    setShowSuggestions(false)
     setBuscando(true)
     setError(null)
     try {
-      const result = await getBrandManual(buscarProducto.trim())
+      const result = await getBrandManual(nombreProducto.trim())
       setManual(result)
       toast("Manual de marca encontrado", "success")
     } catch (err) {
@@ -48,6 +91,16 @@ export function BrandManualTab() {
     } finally {
       setBuscando(false)
     }
+  }
+
+  async function onBuscar(e: FormEvent) {
+    e.preventDefault()
+    await buscarManual(buscarProducto)
+  }
+
+  function onSelectSuggestion(nombre: string) {
+    setBuscarProducto(nombre)
+    buscarManual(nombre)
   }
 
   const loadingAny = loading || buscando
@@ -64,12 +117,39 @@ export function BrandManualTab() {
             Busca el manual ya generado e indexado para un producto.
           </p>
           <form onSubmit={onBuscar} className="mt-4 flex gap-2">
-            <Input
-              value={buscarProducto}
-              onChange={(e) => setBuscarProducto(e.target.value)}
-              placeholder="Ej. Zapatillas running EcoStride"
-              aria-label="Producto a consultar"
-            />
+            <div ref={searchBoxRef} className="relative flex-1">
+              <Input
+                value={buscarProducto}
+                onChange={(e) => setBuscarProducto(e.target.value)}
+                onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                placeholder="Ej. Barra de cereal NutriMax"
+                aria-label="Producto a consultar"
+                autoComplete="off"
+              />
+              {showSuggestions && (suggestions.length > 0 || suggestLoading) && (
+                <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
+                  {suggestLoading && suggestions.length === 0 && (
+                    <p className="px-3 py-2 text-xs text-muted-foreground">Buscando…</p>
+                  )}
+                  {suggestions.map((nombre) => (
+                    <button
+                      key={nombre}
+                      type="button"
+                      onClick={() => onSelectSuggestion(nombre)}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
+                    >
+                      <Search className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                      <span className="truncate">{nombre}</span>
+                    </button>
+                  ))}
+                  {!suggestLoading && suggestions.length === 0 && (
+                    <p className="px-3 py-2 text-xs text-muted-foreground">
+                      Sin coincidencias entre los manuales ya indexados.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
             <Button type="submit" variant="outline" loading={buscando} disabled={loadingAny && !buscando}>
               Buscar
             </Button>

@@ -316,3 +316,41 @@ export async function getBrandManual(producto: string): Promise<BrandManual> {
   const raw = await request<any>(`/brand/${encodeURIComponent(producto)}`)
   return normalizeBrand(raw?.manual ?? raw)
 }
+
+export async function searchBrandProducts(q: string): Promise<string[]> {
+  const query = q.trim()
+  if (query.length < 2) return []
+  const raw = await request<any>(`/brand/search?q=${encodeURIComponent(query)}`)
+  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : []
+  return list.map((x: unknown) => asString(x)).filter(Boolean)
+}
+
+export async function downloadMetricsExcel(): Promise<void> {
+  let res: Response
+  try {
+    res = await fetch(`${API_URL}/metrics/export`)
+  } catch {
+    throw new ApiError(
+      `No se pudo conectar con el backend en ${API_URL}. Verifica que el servidor esté activo.`,
+      0,
+    )
+  }
+  if (!res.ok) {
+    throw new ApiError(`No se pudo generar el archivo de métricas (error ${res.status}).`, res.status)
+  }
+
+  const blob = await res.blob()
+  const url = window.URL.createObjectURL(blob)
+
+  const disposition = res.headers.get("Content-Disposition") || ""
+  const match = disposition.match(/filename="?([^"]+)"?/)
+  const filename = match ? match[1] : "content-suite-metricas.xlsx"
+
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.URL.revokeObjectURL(url)
+}

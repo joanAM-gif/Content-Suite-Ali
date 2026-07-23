@@ -35,5 +35,14 @@ class Settings:
     LANGFUSE_SECRET_KEY: str = os.getenv("LANGFUSE_SECRET_KEY", "")
     LANGFUSE_HOST: str = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")
 
+    # Notificaciones por email (extra sobre lo pedido en el reto)
+    NOTIFY_ENABLED: bool = os.getenv("NOTIFY_ENABLED", "false").lower() == "true"
+    SMTP_HOST: str = os.getenv("SMTP_HOST", "")
+    SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USER: str = os.getenv("SMTP_USER", "")
+    SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+    SMTP_FROM: str = os.getenv("SMTP_FROM", "")
+    NOTIFY_TO_EMAIL: str = os.getenv("NOTIFY_TO_EMAIL", "")
+
 
 settings = Settings()

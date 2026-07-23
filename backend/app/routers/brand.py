@@ -73,41 +73,43 @@ def create_brand_manual(payload: BrandRequest) -> BrandResponse:
         chunks_indexados=len(chunks),
     )
 
-@router.get("/{producto}", response_model=BrandResponse)
-def get_brand_manual(producto: str) -> BrandResponse:
+@router.get("/search", response_model=list[str])
+def search_brand_products(q: str = "") -> list[str]:
     """
-    Reconstruye el manual de marca ya guardado para un producto, a partir
-    de los chunks indexados en brand_manual_chunks (extra: permite
-    consultar lo que ya se genero, no solo crear uno nuevo).
+    Sugerencias de productos para el buscador del Creador (extra sobre lo
+    pedido en el reto). Antes, buscar un manual exigia escribir el nombre
+    del producto exacto (aunque fuera case-insensitive); si dos productos
+    comparten una palabra -- por ejemplo "Barra de cereal NutriMax" y
+    "Barra energetica NutriMax Pro" -- no habia forma de descubrir el
+    segundo sin saber su nombre completo de antemano.
 
-    Si el producto se genero mas de una vez, se toma solo la version mas
-    reciente (los chunks insertados dentro de los ultimos 10s respecto al
-    mas nuevo), para no mezclar generaciones distintas del mismo producto.
+    Este endpoint hace una busqueda por coincidencia parcial
+    (case-insensitive, `ILIKE '%q%'`) sobre los productos ya indexados en
+    `brand_manual_chunks` y devuelve nombres de producto unicos, para que
+    el frontend los muestre como sugerencias mientras el usuario escribe.
     """
+    q = q.strip()
+    if len(q) < 2:
+        return []
+
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT chunk_type, content, product
+                    SELECT DISTINCT product
                     FROM brand_manual_chunks
-                    WHERE lower(product) = lower(%s)
-                      AND created_at >= (
-                          SELECT max(created_at) FROM brand_manual_chunks WHERE lower(product) = lower(%s)
-                      ) - interval '10 seconds'
-                    ORDER BY chunk_type ASC
+                    WHERE product ILIKE %s
+                    ORDER BY product ASC
+                    LIMIT 10
                     """,
-                    (producto, producto),
+                    (f"%{q}%",),
                 )
                 rows = cur.fetchall()
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"Error consultando el manual: {exc}") from exc
+        raise HTTPException(status_code=500, detail=f"Error buscando productos: {exc}") from exc
 
-    if not rows:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No hay manual de marca indexado para '{producto}'. Genera uno primero con POST /brand.",
-        )
+    return [row[0] for row in rows]
 
     # Se usa el nombre del producto tal como se guardo originalmente (puede
     # diferir en mayusculas/minusculas de lo que el usuario escribio al buscar).
