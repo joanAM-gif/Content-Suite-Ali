@@ -15,11 +15,21 @@ de inicio y fin del span, sin necesidad de medir el tiempo a mano.
 """
 import base64
 import json
-
-import httpx
+from importlib import import_module
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 from app.config import settings
-from app.services.observability import get_client, observe
+
+try:
+    observe = import_module("langfuse").observe
+except ModuleNotFoundError:
+    # Langfuse is optional for local execution and static analysis.
+    def observe(*_args, **_kwargs):
+        def decorator(function):
+            return function
+
+        return decorator
 
 _VISION_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -43,6 +53,43 @@ adicional antes ni despues:
 }}
 """.strip()
 
+
+def _get_langfuse_client():
+    """Load Langfuse lazily so static analysis does not require the package."""
+    return import_module("langfuse").get_client()
+
+
+def _call_gemini_with_retry(payload: dict, attempts: int = 2) -> dict:
+    """
+    Llama a Gemini y parsea su respuesta como JSON. Gemini en modo JSON
+    ocasionalmente devuelve texto mal formado (comillas sin escapar,
+    respuesta truncada), aunque se le pida `response_mime_type:
+    application/json`. En vez de fallar la auditoria completa por un
+    error puntual de formato, se reintenta una vez mas antes de
+    propagar el error.
+    """
+    last_error: Exception | None = None
+    for _ in range(attempts):
+        request = Request(
+            f"{_VISION_URL}?key={settings.GOOGLE_API_KEY}",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=60) as response:
+                data = json.loads(response.read())
+        except HTTPError as exc:
+            raise RuntimeError(
+                f"Error de Gemini ({exc.code}): {exc.read().decode(errors='replace')}"
+            ) from exc
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            continue
+    raise last_error  # type: ignore[misc]
 
 @observe(name="gemini-multimodal-audit", as_type="generation")
 def audit_image(product: str, brand_rules: list[str], image_bytes: bytes, mime_type: str) -> dict:
@@ -69,18 +116,9 @@ def audit_image(product: str, brand_rules: list[str], image_bytes: bytes, mime_t
         "generationConfig": {"response_mime_type": "application/json"},
     }
 
-    response = httpx.post(
-        _VISION_URL,
-        params={"key": settings.GOOGLE_API_KEY},
-        json=payload,
-        timeout=60,
-    )
-    response.raise_for_status()
-    data = response.json()
-    text = data["candidates"][0]["content"]["parts"][0]["text"]
-    verdict = json.loads(text)
+    verdict = _call_gemini_with_retry(payload)
 
-    get_client().update_current_generation(
+    _get_langfuse_client().update_current_generation(
         input=prompt,
         output=verdict,
         model=settings.VISION_MODEL,
