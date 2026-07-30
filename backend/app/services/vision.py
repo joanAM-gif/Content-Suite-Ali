@@ -15,6 +15,7 @@ de inicio y fin del span, sin necesidad de medir el tiempo a mano.
 """
 import base64
 import json
+import time
 from importlib import import_module
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -59,17 +60,19 @@ def _get_langfuse_client():
     return import_module("langfuse").get_client()
 
 
-def _call_gemini_with_retry(payload: dict, attempts: int = 2) -> dict:
+def _call_gemini_with_retry(payload: dict, attempts: int = 3) -> dict:
     """
-    Llama a Gemini y parsea su respuesta como JSON. Gemini en modo JSON
-    ocasionalmente devuelve texto mal formado (comillas sin escapar,
-    respuesta truncada), aunque se le pida `response_mime_type:
-    application/json`. En vez de fallar la auditoria completa por un
-    error puntual de formato, se reintenta una vez mas antes de
-    propagar el error.
+    Llama a Gemini y parsea su respuesta como JSON. Se reintenta ante dos
+    tipos de fallo transitorio, tipicos del free tier:
+    - JSON mal formado en la respuesta (comillas sin escapar, respuesta
+      truncada), aunque se pida `response_mime_type: application/json`.
+    - 503 "modelo con alta demanda" (sobrecarga temporal del lado de
+      Google), reintentando con una espera corta (backoff) entre intentos.
+    Cualquier otro error HTTP (401, 400, etc.) se propaga de inmediato,
+    ya que no es un problema transitorio que un reintento pueda resolver.
     """
     last_error: Exception | None = None
-    for _ in range(attempts):
+    for attempt in range(attempts):
         request = Request(
             f"{_VISION_URL}?key={settings.GOOGLE_API_KEY}",
             data=json.dumps(payload).encode(),
@@ -80,9 +83,13 @@ def _call_gemini_with_retry(payload: dict, attempts: int = 2) -> dict:
             with urlopen(request, timeout=60) as response:
                 data = json.loads(response.read())
         except HTTPError as exc:
-            raise RuntimeError(
-                f"Error de Gemini ({exc.code}): {exc.read().decode(errors='replace')}"
-            ) from exc
+            body = exc.read().decode(errors="replace")
+            if exc.code == 503 and attempt < attempts - 1:
+                last_error = RuntimeError(f"Error de Gemini (503): {body}")
+                time.sleep(2 * (attempt + 1))  # backoff: 2s, 4s, ...
+                continue
+            raise RuntimeError(f"Error de Gemini ({exc.code}): {body}") from exc
+
         text = data["candidates"][0]["content"]["parts"][0]["text"]
         try:
             return json.loads(text)
