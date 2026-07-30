@@ -126,6 +126,7 @@ def get_metrics() -> MetricsResponse:
         auditorias_no_cumple=no_cumple,
     )
 
+
 @router.get("/metrics/export")
 def export_metrics() -> StreamingResponse:
     """
@@ -134,14 +135,17 @@ def export_metrics() -> StreamingResponse:
     quede solo en un resumen en pantalla sino que se pueda llevar a un
     reporte fuera de la aplicacion.
 
-    El archivo tiene 3 hojas: un resumen agregado (igual a GET /metrics),
-    el detalle de todas las piezas de contenido, y el detalle de todas
+    El archivo tiene 3 hojas: un resumen agregado con graficas (igual a
+    GET /metrics pero visual), el detalle de todas las piezas de
+    contenido (incluyendo el texto generado), y el detalle de todas
     las auditorias de imagen.
     """
     # openpyxl is an optional runtime dependency used only by this export.
     # The backend environment may not expose its source package to Pylance.
     from openpyxl import Workbook  # type: ignore[reportMissingModuleSource]
     from openpyxl.styles import Font, PatternFill  # type: ignore[reportMissingModuleSource]
+    from openpyxl.chart import BarChart, PieChart, Reference  # type: ignore[reportMissingModuleSource]
+    from openpyxl.chart.label import DataLabelList  # type: ignore[reportMissingModuleSource]
 
     try:
         with get_connection() as conn:
@@ -154,7 +158,7 @@ def export_metrics() -> StreamingResponse:
 
                 cur.execute(
                     """
-                    SELECT id, product, content_type, status, reviewer_note, created_at, updated_at
+                    SELECT id, product, content_type, content, status, reviewer_note, created_at, updated_at
                     FROM content_pieces
                     ORDER BY created_at DESC
                     """
@@ -189,8 +193,7 @@ def export_metrics() -> StreamingResponse:
 
     wb = Workbook()
 
-    ws1 = wb.active
-    assert ws1 is not None
+    ws1 = wb.active or wb.create_sheet("Resumen")
     ws1.title = "Resumen"
     ws1.append(["Metrica", "Valor"])
     ws1.append(["Total contenido generado", pendiente + aprobado + rechazado])
@@ -201,13 +204,74 @@ def export_metrics() -> StreamingResponse:
     ws1.append(["Auditorias que cumplen", cumple])
     ws1.append(["Auditorias que no cumplen", no_cumple])
     ws1.append(["Exportado el", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")])
+
+    # Tablas auxiliares (a la derecha) que alimentan las graficas: openpyxl
+    # solo grafica a partir de celdas de la hoja, no de valores sueltos.
+    ws1["D1"] = "Estado"
+    ws1["E1"] = "Cantidad"
+    ws1["D2"] = "Pendiente"
+    ws1["E2"] = pendiente
+    ws1["D3"] = "Aprobado"
+    ws1["E3"] = aprobado
+    ws1["D4"] = "Rechazado"
+    ws1["E4"] = rechazado
+
+    ws1["G1"] = "Veredicto"
+    ws1["H1"] = "Cantidad"
+    ws1["G2"] = "Cumple"
+    ws1["H2"] = cumple
+    ws1["G3"] = "No cumple"
+    ws1["H3"] = no_cumple
+
     style_header(ws1)
     autosize(ws1)
 
+    # Grafica de barras: contenido por estado (pendiente/aprobado/rechazado).
+    status_chart = BarChart()
+    status_chart.type = "col"
+    status_chart.style = 10
+    status_chart.title = "Contenido por estado"
+    status_chart.y_axis.title = "Piezas"
+    status_chart.x_axis.title = "Estado"
+    status_chart.legend = None
+    status_data = Reference(ws1, min_col=5, min_row=1, max_row=4)
+    status_cats = Reference(ws1, min_col=4, min_row=2, max_row=4)
+    status_chart.add_data(status_data, titles_from_data=True)
+    status_chart.set_categories(status_cats)
+    status_chart.dataLabels = DataLabelList()
+    status_chart.dataLabels.showVal = True
+    status_chart.dataLabels.showCatName = False
+    status_chart.dataLabels.showSerName = False
+    status_chart.dataLabels.showLegendKey = False
+    status_chart.width = 15
+    status_chart.height = 9
+    ws1.add_chart(status_chart, "D6")  # type: ignore[reportCallIssue]
+
+    # Grafica circular: auditorias de imagen que cumplen vs no cumplen.
+    # Anclada debajo de la de barras (misma columna) para que no se solapen.
+    audit_chart = PieChart()
+    audit_chart.title = "Auditorias de imagen: cumple vs no cumple"
+    audit_data = Reference(ws1, min_col=8, min_row=1, max_row=3)
+    audit_cats = Reference(ws1, min_col=7, min_row=2, max_row=3)
+    audit_chart.add_data(audit_data, titles_from_data=True)
+    audit_chart.set_categories(audit_cats)
+    audit_chart.dataLabels = DataLabelList()
+    audit_chart.dataLabels.showVal = True
+    audit_chart.dataLabels.showPercent = True
+    audit_chart.dataLabels.showCatName = False
+    audit_chart.dataLabels.showSerName = False
+    audit_chart.dataLabels.showLegendKey = False
+    audit_chart.width = 15
+    audit_chart.height = 9
+    ws1.add_chart(audit_chart, "D24")  # type: ignore[reportCallIssue]
+
     ws2 = wb.create_sheet("Piezas de contenido")
-    ws2.append(["ID", "Producto", "Tipo", "Estado", "Nota del revisor", "Creado", "Actualizado"])
+    ws2.append(["ID", "Producto", "Tipo", "Contenido", "Estado", "Nota del revisor", "Creado", "Actualizado"])
     for row in pieces:
-        ws2.append([row[0], row[1], row[2], row[3], row[4] or "", _iso(row[5]) or "", _iso(row[6]) or ""])
+        ws2.append([
+            row[0], row[1], row[2], row[3] or "", row[4], row[5] or "",
+            _iso(row[6]) or "", _iso(row[7]) or "",
+        ])
     style_header(ws2)
     autosize(ws2)
 
