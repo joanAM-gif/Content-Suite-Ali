@@ -45,6 +45,11 @@ def _manual_to_chunks(producto: str, manual: dict) -> list[tuple[str, str]]:
 @router.post("", response_model=BrandResponse)
 @observe(name="POST /brand")
 def create_brand_manual(payload: BrandRequest) -> BrandResponse:
+    # Se recorta el nombre del producto para evitar que espacios de mas al
+    # inicio/final generen entradas "duplicadas" que luego no coincidan con
+    # una busqueda exacta (ver get_brand_manual mas abajo).
+    payload.producto = payload.producto.strip()
+
     try:
         manual_dict = generate_brand_manual(payload.producto, payload.tono, payload.publico)
     except Exception as exc:  # noqa: BLE001 - queremos capturar cualquier fallo del LLM
@@ -72,6 +77,7 @@ def create_brand_manual(payload: BrandRequest) -> BrandResponse:
         manual=BrandManual(**manual_dict),
         chunks_indexados=len(chunks),
     )
+
 
 @router.get("/search", response_model=list[str])
 def search_brand_products(q: str = "") -> list[str]:
@@ -110,6 +116,48 @@ def search_brand_products(q: str = "") -> list[str]:
         raise HTTPException(status_code=500, detail=f"Error buscando productos: {exc}") from exc
 
     return [row[0] for row in rows]
+
+
+@router.get("/{producto}", response_model=BrandResponse)
+def get_brand_manual(producto: str) -> BrandResponse:
+    """
+    Reconstruye el manual de marca ya guardado para un producto, a partir
+    de los chunks indexados en brand_manual_chunks (extra: permite
+    consultar lo que ya se genero, no solo crear uno nuevo).
+
+    Si el producto se genero mas de una vez, se toma solo la version mas
+    reciente (los chunks insertados dentro de los ultimos 10s respecto al
+    mas nuevo), para no mezclar generaciones distintas del mismo producto.
+
+    La comparacion usa trim() ademas de lower() para que un producto
+    guardado con un espacio de mas al inicio/final (por ejemplo de una
+    generacion anterior a este fix) igual se encuentre con una busqueda
+    exacta.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT chunk_type, content, product
+                    FROM brand_manual_chunks
+                    WHERE lower(trim(product)) = lower(trim(%s))
+                      AND created_at >= (
+                          SELECT max(created_at) FROM brand_manual_chunks WHERE lower(trim(product)) = lower(trim(%s))
+                      ) - interval '10 seconds'
+                    ORDER BY chunk_type ASC
+                    """,
+                    (producto, producto),
+                )
+                rows = cur.fetchall()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Error consultando el manual: {exc}") from exc
+
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay manual de marca indexado para '{producto}'. Genera uno primero con POST /brand.",
+        )
 
     # Se usa el nombre del producto tal como se guardo originalmente (puede
     # diferir en mayusculas/minusculas de lo que el usuario escribio al buscar).
