@@ -314,7 +314,11 @@ export async function getMetrics(): Promise<Metrics> {
 
 export async function getBrandManual(producto: string): Promise<BrandManual> {
   const raw = await request<any>(`/brand/${encodeURIComponent(producto)}`)
-  return normalizeBrand(raw?.manual ?? raw)
+  const manual = raw?.manual ?? raw
+  return normalizeBrand({
+    ...manual,
+    chunks_indexados: raw?.chunks_indexados ?? manual?.chunks_indexados,
+  })
 }
 
 export async function searchBrandProducts(q: string): Promise<string[]> {
